@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "API Interceptor",
   "version": "1.0.0",
-  "description": "Easily block requests that match your custom regular expressions. Monitor activity and instantly validate request patterns using real-time",
+  "description": "Easily block requests that match your custom regular expressions. Monitor activity in real-time",
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestFeedback",
