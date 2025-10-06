@@ -1,19 +1,17 @@
 const RULE_ID = 1;
 let ruleEnabled = false;
 let currentRegex = ".*api\\.example\\.com.*"; // default regex
-let blockedCount = 0;
 
 console.log("🚀 API Interceptor Extension: Background script initialized");
 console.log("📋 Initial state:", {
   ruleEnabled,
   currentRegex,
   RULE_ID,
-  blockedCount,
 });
 
 // Load saved data from storage on startup
 chrome.storage.local
-  .get(["regex", "blockedCount"])
+  .get(["regex", "ruleEnabled"])
   .then((result) => {
     if (result.regex) {
       console.log("📂 Loading saved regex from storage:", result.regex);
@@ -22,14 +20,20 @@ chrome.storage.local
       console.log("📂 No saved regex found, using default:", currentRegex);
     }
 
-    if (result.blockedCount !== undefined) {
-      console.log("📂 Loading saved blocked count:", result.blockedCount);
-      blockedCount = result.blockedCount;
+    if (result.ruleEnabled !== undefined) {
+      console.log("📂 Loading saved rule state:", result.ruleEnabled);
+      ruleEnabled = result.ruleEnabled;
+
+      // Re-enable the rule if it was active before
+      if (ruleEnabled) {
+        console.log("🔄 Re-enabling rule from previous session");
+        enableRule().catch((error) => {
+          console.error("❌ Failed to restore rule on startup:", error);
+          ruleEnabled = false;
+        });
+      }
     } else {
-      console.log(
-        "📂 No saved blocked count found, using default:",
-        blockedCount
-      );
+      console.log("📂 No saved rule state found, using default:", ruleEnabled);
     }
   })
   .catch((error) => {
@@ -38,7 +42,42 @@ chrome.storage.local
 
 function validateRegex(regex) {
   try {
+    // Basic JavaScript regex validation
     new RegExp(regex);
+
+    // Additional Chrome declarativeNetRequest specific validations
+    // Regex must be within reasonable length (Chrome has limits)
+    if (regex.length > 2000) {
+      return {
+        valid: false,
+        error: "Regex pattern is too long (max 2000 characters)",
+      };
+    }
+
+    // Check for empty regex
+    if (!regex || regex.trim() === "") {
+      return { valid: false, error: "Regex pattern cannot be empty" };
+    }
+
+    // Warn about potentially problematic patterns
+    // Chrome's RE2 engine doesn't support some JS regex features
+    const unsupportedFeatures = [
+      { pattern: /\\b/, name: "word boundaries (\\b)" },
+      { pattern: /\(\?<=/, name: "lookbehind assertions (?<=)" },
+      { pattern: /\(\?<!/, name: "negative lookbehind (?<!)" },
+      { pattern: /\(\?=/, name: "lookahead assertions (?=)" },
+      { pattern: /\(\?!/, name: "negative lookahead (?!)" },
+      { pattern: /\\[0-9]/, name: "backreferences (\\1, \\2, etc.)" },
+    ];
+
+    for (const feature of unsupportedFeatures) {
+      if (feature.pattern.test(regex)) {
+        console.warn(
+          `⚠️ Regex contains ${feature.name} which may not work in Chrome's RE2 engine`
+        );
+      }
+    }
+
     return { valid: true, error: null };
   } catch (error) {
     return { valid: false, error: error.message };
@@ -84,6 +123,12 @@ function enableRule() {
       console.log("✅ Rule enabled successfully");
       ruleEnabled = true;
       console.log("🚫 Now blocking requests matching:", currentRegex);
+
+      // Persist the enabled state
+      return chrome.storage.local.set({ ruleEnabled: true });
+    })
+    .then(() => {
+      console.log("💾 Rule state saved to storage");
     })
     .catch((error) => {
       console.error("❌ Failed to enable rule:", error);
@@ -102,39 +147,16 @@ function disableRule() {
       console.log("✅ Rule disabled successfully");
       ruleEnabled = false;
       console.log("✅ No longer blocking requests");
+
+      // Persist the disabled state
+      return chrome.storage.local.set({ ruleEnabled: false });
+    })
+    .then(() => {
+      console.log("💾 Rule state saved to storage");
     })
     .catch((error) => {
       console.error("❌ Failed to disable rule:", error);
       throw error;
-    });
-}
-
-function incrementBlockedCount() {
-  blockedCount++;
-  console.log("📊 Blocked request count:", blockedCount);
-
-  // Save to storage
-  chrome.storage.local
-    .set({ blockedCount })
-    .then(() => {
-      console.log("💾 Blocked count saved to storage:", blockedCount);
-    })
-    .catch((error) => {
-      console.error("❌ Failed to save blocked count:", error);
-    });
-}
-
-function clearStats() {
-  blockedCount = 0;
-  console.log("📊 Statistics cleared");
-
-  chrome.storage.local
-    .set({ blockedCount })
-    .then(() => {
-      console.log("💾 Statistics cleared from storage");
-    })
-    .catch((error) => {
-      console.error("❌ Failed to clear statistics:", error);
     });
 }
 
@@ -210,38 +232,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     console.log("📊 Status request received, responding with:", {
       enabled: ruleEnabled,
       regex: currentRegex,
-      blockedCount: blockedCount,
     });
     sendResponse({
       enabled: ruleEnabled,
       regex: currentRegex,
-      blockedCount: blockedCount,
     });
-  }
-
-  if (msg.type === "getStats") {
-    console.log("📊 Stats request received, responding with:", {
-      blockedCount,
-    });
-    sendResponse({ blockedCount: blockedCount });
-  }
-
-  if (msg.type === "clearStats") {
-    console.log("🗑️ Clear stats request received");
-    clearStats();
-    sendResponse({ success: true, blockedCount: blockedCount });
-  }
-});
-
-// Listen for blocked requests to update statistics
-chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((details) => {
-  if (details.rule.ruleId === RULE_ID) {
-    console.log("🚫 Request blocked:", {
-      url: details.request.url,
-      type: details.request.type,
-      timestamp: new Date().toISOString(),
-      ruleId: details.rule.ruleId,
-    });
-    incrementBlockedCount();
   }
 });
