@@ -2,13 +2,8 @@
   "manifest_version": 3,
   "name": "API Interceptor",
   "version": "1.0.0",
-  "description": "Easily block requests that match your custom regular expressions. Monitor activity in real-time",
-  "permissions": [
-    "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
-    "storage",
-    "activeTab"
-  ],
+  "description": "Block API requests that match your custom regular expressions. Simplify testing by controlling network traffic.",
+  "permissions": ["declarativeNetRequest", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

@@ -5,8 +5,6 @@ const regexInput = document.getElementById("regexInput");
 const saveButton = document.getElementById("saveRegex");
 const blockingStatus = document.getElementById("blockingStatus");
 const regexStatus = document.getElementById("regexStatus");
-const blockedNumber = document.getElementById("blockedNumber");
-const clearStatsButton = document.getElementById("clearStats");
 
 console.log("🔍 DOM elements found:", {
   toggle: !!toggle,
@@ -14,8 +12,6 @@ console.log("🔍 DOM elements found:", {
   saveButton: !!saveButton,
   blockingStatus: !!blockingStatus,
   regexStatus: !!regexStatus,
-  blockedNumber: !!blockedNumber,
-  clearStatsButton: !!clearStatsButton,
 });
 
 // Utility functions
@@ -30,19 +26,46 @@ function showStatus(element, message, type = "info") {
 
 function validateRegex(regex) {
   try {
+    // Basic JavaScript regex validation
     new RegExp(regex);
+
+    // Additional Chrome declarativeNetRequest specific validations
+    // Regex must be within reasonable length (Chrome has limits)
+    if (regex.length > 2000) {
+      return {
+        valid: false,
+        error: "Regex pattern is too long (max 2000 characters)",
+      };
+    }
+
+    // Check for empty regex
+    if (!regex || regex.trim() === "") {
+      return { valid: false, error: "Regex pattern cannot be empty" };
+    }
+
+    // Warn about potentially problematic patterns
+    // Chrome's RE2 engine doesn't support some JS regex features
+    const unsupportedFeatures = [
+      { pattern: /\\b/, name: "word boundaries (\\b)" },
+      { pattern: /\(\?<=/, name: "lookbehind assertions (?<=)" },
+      { pattern: /\(\?<!/, name: "negative lookbehind (?<!)" },
+      { pattern: /\(\?=/, name: "lookahead assertions (?=)" },
+      { pattern: /\(\?!/, name: "negative lookahead (?!)" },
+      { pattern: /\\[0-9]/, name: "backreferences (\\1, \\2, etc.)" },
+    ];
+
+    for (const feature of unsupportedFeatures) {
+      if (feature.pattern.test(regex)) {
+        console.warn(
+          `⚠️ Regex contains ${feature.name} which may not work in Chrome's RE2 engine`
+        );
+      }
+    }
+
     return { valid: true, error: null };
   } catch (error) {
     return { valid: false, error: error.message };
   }
-}
-
-function updateBlockedCount() {
-  chrome.runtime.sendMessage({ type: "getStats" }, (res) => {
-    if (res && res.blockedCount !== undefined) {
-      blockedNumber.textContent = res.blockedCount;
-    }
-  });
 }
 
 // Toggle blocking on/off
@@ -81,9 +104,9 @@ regexInput.addEventListener("input", () => {
   if (regex) {
     const validation = validateRegex(regex);
     if (validation.valid) {
-      showStatus(regexStatus, "✅ Valid regex pattern", "success");
+      showStatus(regexStatus, "Valid regex pattern", "success");
     } else {
-      showStatus(regexStatus, `❌ Invalid regex: ${validation.error}`, "error");
+      showStatus(regexStatus, `Invalid regex: ${validation.error}`, "error");
     }
   } else {
     regexStatus.style.display = "none";
@@ -119,18 +142,6 @@ saveButton.addEventListener("click", () => {
   });
 });
 
-// Clear statistics
-clearStatsButton.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "clearStats" }, (res) => {
-    if (chrome.runtime.lastError) {
-      console.error("❌ Clear stats error:", chrome.runtime.lastError);
-      return;
-    }
-    blockedNumber.textContent = "0";
-    console.log("✅ Statistics cleared");
-  });
-});
-
 // Restore state when popup opens
 console.log("📊 Requesting status from background script");
 chrome.runtime.sendMessage({ type: "status" }, (res) => {
@@ -159,11 +170,5 @@ chrome.runtime.sendMessage({ type: "status" }, (res) => {
 
   regexInput.value = res.regex || "";
 
-  // Update blocked count
-  updateBlockedCount();
-
   console.log("✅ UI state restored successfully");
 });
-
-// Update stats periodically
-setInterval(updateBlockedCount, 2000);
